@@ -1,8 +1,14 @@
 """Registro de rutas HTTP del módulo."""
 
-from fastapi import APIRouter
+from django.urls import path
 
-from core.views import router as views_router
+from core.views import CalcularAntropometriaView, HealthView
 
-router = APIRouter()
-router.include_router(views_router)
+urlpatterns = [
+    path("health", HealthView.as_view(), name="health"),
+    path(
+        "calcular-antropometria",
+        CalcularAntropometriaView.as_view(),
+        name="calcular-antropometria",
+    ),
+]

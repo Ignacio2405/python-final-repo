@@ -12,7 +12,7 @@ from core.formulas.masa_grasa import calcular_porcentaje_mg
 from core.formulas.masa_muscular import calcular_porcentaje_mm
 from core.formulas.metabolismo_basal import calcular_metabolismo_basal
 from core.math_utils import redondear
-from core.schemas import CalculoAntropometriaRequest, ResultadosAntropometria
+from core.serializers import CalculoAntropometriaRequest
 
 logger = logging.getLogger(__name__)
 
@@ -30,43 +30,49 @@ class AntropometriaService:
     """Calculá indicadores de forma independiente y armá el resultado."""
 
     @staticmethod
-    def calcular(request: CalculoAntropometriaRequest) -> ResultadosAntropometria:
-        mediciones = request.mediciones
-        paciente = request.paciente
-        sexo = paciente.sexo if paciente is not None else None
-        edad = paciente.edad if paciente is not None else None
+    def calcular(
+        request: CalculoAntropometriaRequest,
+    ) -> dict[str, float | int | None]:
+        datos = request.validated_data
+        mediciones = datos["mediciones"]
+        paciente = datos.get("paciente") or {}
+        sexo = paciente.get("sexo")
+        edad = paciente.get("edad")
 
         calculos: tuple[tuple[str, Callable[[], float | int | None]], ...] = (
-            ("imc", lambda: calcular_imc(mediciones.peso, mediciones.talla)),
+            ("imc", lambda: calcular_imc(mediciones["peso"], mediciones["talla"])),
             ("porcentajeMG", lambda: calcular_porcentaje_mg(
                 sexo,
                 edad,
-                mediciones.pBicipital,
-                mediciones.pTricipital,
-                mediciones.pSubescapular,
-                mediciones.pSuprailiaco,
+                mediciones["pBicipital"],
+                mediciones["pTricipital"],
+                mediciones["pSubescapular"],
+                mediciones["pSuprailiaco"],
             )),
             ("porcentajeMM", lambda: calcular_porcentaje_mm(
-                mediciones.peso,
-                mediciones.talla,
-                mediciones.brazo,
-                mediciones.pTricipital,
+                mediciones["peso"],
+                mediciones["talla"],
+                mediciones["brazo"],
+                mediciones["pTricipital"],
                 sexo,
                 edad,
             )),
             ("mBasal", lambda: calcular_metabolismo_basal(
-                mediciones.peso,
-                mediciones.talla,
+                mediciones["peso"],
+                mediciones["talla"],
                 edad,
                 sexo,
             )),
             ("bodyAge", calcular_edad_corporal),
             ("grVisceral", lambda: calcular_grasa_visceral(
-                mediciones.cintura,
-                mediciones.peso,
-                mediciones.talla,
+                mediciones["cintura"],
+                mediciones["peso"],
+                mediciones["talla"],
             )),
-            ("icc", lambda: calcular_icc(mediciones.cintura, mediciones.cadera)),
+            (
+                "icc",
+                lambda: calcular_icc(mediciones["cintura"], mediciones["cadera"]),
+            ),
         )
 
         valores: dict[str, float | int | None] = {}
@@ -86,4 +92,4 @@ class AntropometriaService:
             else valor
             for indicador, valor in valores.items()
         }
-        return ResultadosAntropometria(**redondeados)
+        return redondeados

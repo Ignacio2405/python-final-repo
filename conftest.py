@@ -1,19 +1,31 @@
 """Fixtures compartidas por las pruebas del módulo."""
 
+import os
+from collections.abc import Generator
 from datetime import date
 
+os.environ["DJANGO_SETTINGS_MODULE"] = "config.settings"
+os.environ["DEBUG"] = "True"
+os.environ["API_TOKEN"] = "test-token"
+
+import django
 import pytest
-from fastapi.testclient import TestClient
+from django.test import override_settings
+from rest_framework.test import APIClient
+
+django.setup()
 
 
 @pytest.fixture
-def cliente(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.setenv("DEBUG", "True")
-    monkeypatch.setenv("API_TOKEN", "test-token")
-
-    from config.app import create_app
-
-    return TestClient(create_app(), raise_server_exceptions=False)
+def cliente() -> Generator[APIClient, None, None]:
+    with override_settings(
+        DEBUG=True,
+        API_TOKEN="test-token",
+        ALLOWED_HOSTS=["testserver"],
+    ):
+        cliente_api = APIClient()
+        cliente_api.raise_request_exception = False
+        yield cliente_api
 
 
 @pytest.fixture

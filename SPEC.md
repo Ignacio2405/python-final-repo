@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Versión** | 0.2 |
-| **Fecha** | 2026-11-23 |
+| **Versión** | 0.3 |
+| **Fecha** | 2026-11-25 |
 | **Estado** | Especificación cerrada para implementar, salvo `bodyAge` (sin método validado) y las propuestas P-7 y P-8. |
 | **Fuente de arquitectura** | `AGENTS.md` (este documento no la redefine, la referencia) |
 | **Fuente de verdad funcional** | Este documento |
@@ -20,6 +20,7 @@
 Este documento especifica el módulo independiente de cálculos nutricionales y antropométricos. Es un servicio HTTP en Python que recibe las mediciones físicas de un paciente y devuelve indicadores de composición corporal y metabolismo en JSON.
 
 - `AGENTS.md` define **cómo** se construye. Este documento define **qué** hace el módulo: contratos, fórmulas, reglas de negocio, validaciones y criterios de aceptación.
+- El stack HTTP vigente es **Django + Django REST Framework**, servido por Daphne. Se eligió para alinearlo con el stack de referencia TaskFlow; no se configura persistencia Django.
 - **TaskFlow** se usa solo como referencia técnica y estructural. Nada de su dominio forma parte del módulo.
 - Los valores del ejemplo de la sección 7.1 se calcularon a mano con las ecuaciones de la sección 8 para el payload de la sección 6.2.
 
@@ -51,14 +52,14 @@ Procesar mediciones antropométricas y calcular de forma determinista, trazable 
 ## 4. Descripción general de la arquitectura
 
 ```
-Frontend ──(antropometria.mediciones)──▶ Node.js ──POST {paciente, mediciones} + X-API-Key──▶ Python (FastAPI)
+Frontend ──(antropometria.mediciones)──▶ Node.js ──POST {paciente, mediciones} + X-API-Key──▶ Python (Django + DRF)
                                             │                                                    │
                                             │◀──────────────── {ok, resultados} ────────────────┘
                                             ▼
                                         MongoDB (antropometria.mediciones + antropometria.resultados)
 ```
 
-Capas internas (detalle en `AGENTS.md` §3): `views → services → formulas → math_utils`. Los endpoints no contienen matemática; las fórmulas son funciones puras `calcular_<indicador>`; el redondeo ocurre una sola vez en el servicio. El servicio es **sin estado** y **sin base de datos**, y se despliega solo en red interna.
+Capas internas (detalle en `AGENTS.md` §3): `views → services → formulas → math_utils`. Los endpoints DRF no contienen matemática; los serializers validan el contrato; las fórmulas son funciones puras `calcular_<indicador>`; el redondeo ocurre una sola vez en el servicio. El servicio es **sin estado** y **sin base de datos**, y se despliega solo en red interna.
 
 ### 4.1 Verificación contra el backend existente
 
@@ -142,8 +143,8 @@ Claves desconocidas dentro de `paciente` ⇒ `422`.
 
 - Todas las mediciones son individualmente opcionales, pero debe venir al menos una (no `null`). Un objeto `mediciones` vacío ⇒ `422`.
 - Sin `NaN` ni infinitos.
-- Claves desconocidas (por ejemplo `pTriciptal`) ⇒ `422` (P-9, ✅ cerrada: `extra="forbid"` en raíz, `paciente` y `mediciones`).
-- Los rangos son constantes con nombre en `schemas.py` y se pueden ajustar sin cambiar la lógica.
+- Claves desconocidas (por ejemplo `pTriciptal`) ⇒ `422` (P-9, ✅ cerrada: los serializers rechazan claves extra en raíz, `paciente` y `mediciones`).
+- Los rangos son constantes con nombre en `core/serializers.py` y se pueden ajustar sin cambiar la lógica.
 
 ## 7. Contrato de salida
 
@@ -353,7 +354,7 @@ Reglas: no se presenta como diagnóstico ni como medición con equipamiento méd
 | Cobertura | Ningún indicador calculable. | `422` (`DatosInsuficientesError`) |
 | JSON | Cuerpo malformado o `Content-Type` no JSON. | `422` / `415` según el framework |
 
-Validaciones de un campo en `field_validator`; cruzadas en `model_validator`; mensajes en español.
+Validaciones de un campo en `validate_<campo>`; cruzadas en `validate()` de los serializers DRF; mensajes en español.
 
 ## 11. Manejo de errores
 
@@ -393,6 +394,16 @@ Exento de autenticación. Respuesta `200`:
 ```json
 { "status": "ok", "service": "Calculos Nutricionales" }
 ```
+
+### 12.3 Implementación HTTP
+
+La aplicación se configura en `config/settings.py`, registra las rutas Django en
+`config/urls.py` y expone `config.asgi:application` para Daphne. En desarrollo se
+puede ejecutar con `python manage.py runserver`. No se configura una base de
+datos Django ni se ejecutan migraciones; el módulo no persiste información.
+`DJANGO_SECRET_KEY` y `ALLOWED_HOSTS` son obligatorias con `DEBUG=False`.
+Cuando `DEBUG=True` y falta `DJANGO_SECRET_KEY`, se genera una clave efímera
+solo para ese proceso.
 
 ## 13. Integración con Node.js
 
@@ -506,7 +517,7 @@ Estructura **conceptual** compatible con Mongoose; debe adaptarse al esquema rea
 - No se devuelven estimaciones sin metodología definida (`bodyAge`).
 - No se confunde metabolismo basal con gasto energético total, ni masa muscular con masa magra o libre de grasa.
 - No se presentan estimaciones antropométricas como diagnósticos.
-- No se agregan dependencias de base de datos ni de TaskFlow (Django, DRF, Channels, Redis, Graphene).
+- No se agregan dependencias de persistencia ni componentes de TaskFlow que no se usan (Channels, Redis, Graphene, drivers de base de datos o MongoDB).
 - No se copia nada del dominio de TaskFlow.
 
 ## 18. Decisiones técnicas y discrepancias
@@ -523,7 +534,7 @@ Estructura **conceptual** compatible con Mongoose; debe adaptarse al esquema rea
 | P-6 | Rangos de plausibilidad (6.4) | ✅ |
 | P-7 | Política de Node ante fallas (13.3) | 🟡 Ratificar en el repo de Node |
 | P-8 | Fallo de un indicador ⇒ `null` solo en ese indicador (9.10) | 🟡 |
-| P-9 | `extra="forbid"` en raíz, `paciente` y `mediciones` | ✅ |
+| P-9 | Rechazo de claves desconocidas en raíz, `paciente` y `mediciones` | ✅ |
 | P-10 | Ruta fija y token `X-API-Key` obligatorio (12.1) | ✅ |
 | P-11 | Todo `null` ⇒ `422` (9.9) | ✅ |
 | P-12 | Citas de IMC e ICC, decimales 2 y 2 (8.1, 8.7) | ✅ |
@@ -536,7 +547,8 @@ Pendiente real: aportar un método validado para `bodyAge`, ratificar P-7 y P-8,
 |---|---|---|
 | Ejemplo del contrato | `AGENTS.md` original y el material previo mostraban `bodyAge: 34` y `grVisceral: 6`, y valores de `porcentajeMG`, `porcentajeMM` y `mBasal` ilustrativos. | Se reemplazaron por los valores calculados a mano (7.1). `bodyAge` es `null`. |
 | `grVisceral` | El material previo lo mostraba como entero (6), con escala no definida. | Pasa a ser el índice de conicidad con 2 decimales. Node y el frontend deben aceptar decimales y rotularlo. |
-| `bodyAge` entero o decimal | El modelo Pydantic lo define `float`; los ejemplos, entero. | Hoy siempre `null`; si se habilita, será entero. |
+| Framework HTTP | La especificación inicial no coincidía con el stack elegido para el módulo. | Se establece Django + DRF, servido por Daphne; no cambia el contrato HTTP ni los cálculos. |
+| `bodyAge` entero o decimal | El serializer DRF lo define como entero; los ejemplos, entero. | Hoy siempre `null`; si se habilita, será entero. |
 | `cadera = 0` | El enunciado admitía `null` o error. | `422` en el schema; `None` en la fórmula por defensa. |
 | Fecha de nacimiento | `AGENTS.md` pedía fecha real. | Además se rechazan fechas futuras. |
 | Todo `null` | El enunciado admitía `200` con nulos. | `422` con `DatosInsuficientesError` (9.9). |

@@ -8,9 +8,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY manage.py .
 COPY config/ config/
 COPY core/ core/
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "uvicorn config.app:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "daphne -b 0.0.0.0 -p ${PORT:-8000} config.asgi:application"]

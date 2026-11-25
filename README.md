@@ -1,7 +1,8 @@
 # Módulo de cálculos antropométricos y nutricionales
 
-API sin estado para validar mediciones antropométricas y devolver indicadores
-según las fórmulas documentadas en [SPEC.md](SPEC.md).
+API sin estado construida con Django y Django REST Framework para validar
+mediciones antropométricas y devolver indicadores según las fórmulas
+documentadas en [SPEC.md](SPEC.md).
 
 ## Desarrollo local
 
@@ -15,10 +16,10 @@ según las fórmulas documentadas en [SPEC.md](SPEC.md).
 
 2. Copiá `.env.example` a `.env`. En desarrollo, `DEBUG=True` permite ejecutar
    sin token; para probar la autenticación, configurá `API_TOKEN`.
-3. Iniciá la API:
+3. Iniciá el servidor de desarrollo de Django:
 
    ```powershell
-   uvicorn config.app:app --host 127.0.0.1 --port 8000
+   python manage.py runserver 127.0.0.1:8000
    ```
 
 El endpoint `GET /health` no requiere autenticación. El endpoint
@@ -30,6 +31,8 @@ salvo que `DEBUG=True` y el token esté vacío.
 Configurá `.env` con un token y `DEBUG=False` para el despliegue. El Compose
 incluye solo el servicio `web` y no publica puertos al host; conectalo a la red
 privada compartida con Node en el entorno de despliegue.
+También configurá `DJANGO_SECRET_KEY` y `ALLOWED_HOSTS`. La imagen sirve
+`config.asgi:application` con Daphne.
 
 ## Privacidad y alcance
 

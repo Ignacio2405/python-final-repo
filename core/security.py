@@ -2,18 +2,25 @@
 
 import hmac
 
-from fastapi import Header
+from django.conf import settings
+from rest_framework.permissions import BasePermission
+from rest_framework.request import Request
+from rest_framework.views import APIView
 
-from config.settings import API_TOKEN, DEBUG
 from core.exceptions import NoAutorizadoError
 
 
-def verificar_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
+class RequiereApiKey(BasePermission):
     """Exigí X-API-Key salvo en desarrollo con token vacío."""
-    if DEBUG and not API_TOKEN:
-        return
-    if x_api_key is None or not hmac.compare_digest(
-        x_api_key.encode("utf-8"),
-        API_TOKEN.encode("utf-8"),
-    ):
-        raise NoAutorizadoError
+
+    def has_permission(self, request: Request, _view: APIView) -> bool:
+        if settings.DEBUG and not settings.API_TOKEN:
+            return True
+
+        token = request.headers.get("X-API-Key")
+        if token is None or not hmac.compare_digest(
+            token.encode("utf-8"),
+            settings.API_TOKEN.encode("utf-8"),
+        ):
+            raise NoAutorizadoError()
+        return True

@@ -3,7 +3,7 @@
 Guía técnica permanente para cualquier agente de IA (o persona) que trabaje en este módulo.
 **Leé este archivo completo antes de tocar código.** Si algo de acá choca con lo que ves en el repo, frená y preguntá: no improvises.
 
-> Estado actual: **etapa de especificación**. Todavía no hay implementación. Este archivo describe cómo se va a construir, no lo que ya existe.
+> Estado actual: **implementación en curso**. La arquitectura vigente es Django + Django REST Framework; esta guía debe mantenerse alineada con el código y con `SPEC.md`.
 
 ---
 
@@ -74,10 +74,10 @@ progIV-Taskflow/
 
 ### 1.4 Lo que **no** se hereda (y por qué)
 
-Todo esto es específico de TaskFlow o de Django y el módulo no lo necesita:
+Esto es específico de TaskFlow o no lo necesita este módulo:
 
-- ORM, `models.py`, migraciones, `repositories.py`, base de datos relacional → **el módulo no persiste nada** (persiste Node/MongoDB).
-- DRF, `ViewSet`, `DefaultRouter`, paginación, filtros → se reemplazan por FastAPI (ver 2).
+- ORM, `models.py`, migraciones, `repositories.py`, base de datos relacional → **el módulo no persiste nada** (persiste Node/MongoDB); Django se usa sin configurar una base de datos.
+- `ViewSet`, `DefaultRouter`, paginación y filtros → no se necesitan para los dos endpoints del contrato; se usan vistas DRF delgadas.
 - JWT, allauth, permisos, throttling, `SecurityLog`, sesiones, CSRF, admin → fuera de alcance.
 - Channels/WebSockets, Redis, GraphQL/Graphene, WhiteNoise/`collectstatic`, CORS, comando `import_task`, datos de ejemplo.
 
@@ -95,14 +95,14 @@ Se detectaron al analizar; son deuda del proyecto de referencia, no convenciones
 
 ## 2. Decisiones de herencia y adaptaciones mínimas
 
-El proyecto de referencia es Django/DRF. Para un servicio **sin estado, sin base de datos y sin autenticación de usuarios**, Django no aporta nada y arrastraría ORM, admin y middleware innecesarios. Se aplican estas adaptaciones **mínimas**, cada una con su razón:
+El módulo adopta Django + DRF como framework HTTP, de acuerdo con la decisión del responsable. Se conserva el servicio sin estado y sin persistencia: no se agregan modelos ni configuración de base de datos.
 
 | Tema | Referencia | Este módulo | Justificación |
 |---|---|---|---|
-| Framework HTTP | Django + DRF | **FastAPI** | Pedido explícito del módulo; compatible con la arquitectura por capas; ASGI como en TaskFlow. |
-| Validación | Serializers DRF | **Pydantic** | Equivalente directo; da tipado de entrada y salida. |
-| Servidor ASGI | Daphne | **Uvicorn** | Estándar para FastAPI y más liviano (Daphne arrastra Twisted/Channels que acá no se usan). |
-| Tests de endpoints | `APIClient` | `fastapi.testclient.TestClient` | Mismo rol; requiere `httpx`. |
+| Framework HTTP | Django + DRF | **Django + DRF** | Mantiene el stack del proyecto de referencia y usa serializers para validar el contrato. |
+| Validación | Serializers DRF | **Serializers DRF** | Reutiliza el mecanismo de validación nativo de la API. |
+| Servidor ASGI | Daphne | **Daphne** | Sirve la aplicación ASGI de Django sin agregar Channels. |
+| Tests de endpoints | `APIClient` | **`rest_framework.test.APIClient`** | Cliente de pruebas nativo de Django REST Framework. |
 | Persistencia | ORM + repositories | **Ninguna** | Python solo valida y calcula; Node/MongoDB persisten. |
 | Fórmulas | (no existía) | Paquete `core/formulas/` | El requisito de separar endpoints, servicios y fórmulas obliga a una capa nueva. Es la única capa agregada. |
 | Nombre del paquete | `core` | `core` | Se mantiene para conservar la estructura. |
@@ -113,7 +113,7 @@ Todo lo demás se hereda tal cual: capas, servicios como clases estáticas, hand
 
 ## 3. Estructura del módulo
 
-Nombre del repositorio/carpeta raíz: **a definir** (ej. `nutricion-calculos`). Estructura propuesta, espejo de la de TaskFlow:
+Estructura vigente del repositorio, adaptada de TaskFlow a Django + DRF:
 
 ```
 <raiz>/
@@ -129,16 +129,18 @@ Nombre del repositorio/carpeta raíz: **a definir** (ej. `nutricion-calculos`). 
 ├── .env.example
 ├── config/
 │   ├── __init__.py
-│   ├── settings.py           # carga de entorno + dictConfig de logging
-│   └── app.py                # crea la app FastAPI, registra routers y handlers (rol de urls.py + asgi.py)
-└── core/
+│   ├── settings.py           # ajustes Django, entorno, DRF y logging
+│   ├── urls.py               # enrutamiento raíz
+│   ├── asgi.py / wsgi.py     # puntos de entrada del servidor
+├── core/
     ├── __init__.py
-    ├── views.py              # endpoints (rol de views.py): delgados, sin matemática
-    ├── urls.py               # APIRouter y prefijos (rol de urls.py)
-    ├── schemas.py            # modelos Pydantic (rol de serializers.py)
+    ├── apps.py               # configuración de la aplicación Django
+    ├── views.py              # APIView delgados, sin matemática
+    ├── urls.py               # rutas de la aplicación
+    ├── serializers.py        # validación y serialización del contrato DRF
     ├── services.py           # AntropometriaService: orquesta validación → fórmulas → resultados
     ├── exceptions.py         # excepciones propias + handlers centralizados
-    ├── security.py           # verificación del token compartido con Node (header X-API-Key)
+    ├── security.py           # permiso DRF para el token compartido X-API-Key
     ├── math_utils.py         # conversiones de unidad, redondeo, división segura
     ├── formulas/
     │   ├── __init__.py
@@ -155,11 +157,12 @@ Nombre del repositorio/carpeta raíz: **a definir** (ej. `nutricion-calculos`). 
         ├── test_math_utils.py
         ├── test_services.py
         └── test_endpoints.py
+└── manage.py
 ```
 
 Reglas de la estructura:
 
-- Cada capa solo conoce a la de abajo: `views → services → formulas → math_utils`. Las `formulas` **no** importan nada de `views`, `schemas` ni FastAPI.
+- Cada capa solo conoce a la de abajo: `views → services → formulas → math_utils`. Las `formulas` **no** importan nada de `views`, `serializers` ni Django/DRF.
 - `views.py` **nunca** contiene fórmulas ni redondeos.
 - No crear archivos vacíos "por si acaso" ni alias de compatibilidad.
 - No agregar `models.py`, `repositories.py`, `permissions.py` ni `throttles.py`: no hay persistencia ni usuarios.
@@ -220,22 +223,22 @@ Se hereda el envelope de TaskFlow (`{"error": true, "detail": ...}`) y se le agr
 | Falta o es incorrecto el token (`X-API-Key`) | `401` | `detail: "No autorizado."` Sin pistas sobre el motivo. |
 | Error no previsto | `500` | `detail: "Error interno del servidor."` Sin trazas ni datos del paciente. |
 
-### 4.5 Modelos Pydantic (`core/schemas.py`)
+### 4.5 Serializers DRF (`core/serializers.py`)
 
 Nombres **obligatorios**: `DatosPacienteInput`, `MedicionesInput`, `CalculoAntropometriaRequest`, `ResultadosAntropometria`, `CalculoAntropometriaResponse`.
 
 Reglas de diseño:
 
 - Los **campos mantienen el nombre camelCase del contrato JSON** (`pTricipital`, `fechaNacimiento`, `porcentajeMG`, ...). Es una excepción consciente a PEP 8: el contrato con Node manda.
-- Todo lo opcional es `Optional[...] = None`. Solo `mediciones` es obligatorio en el request; `paciente` es opcional.
-- `sexo`: restringir a `"M"` o `"F"` (`Literal`), no `str` libre.
-- Numéricos: `peso`, `talla`, `cuello`, `brazo`, `cintura`, `cadera` con `gt=0`; pliegues con `ge=0`; `edad` entre 0 y 120. Rechazar `NaN` e infinitos (`allow_inf_nan=False`).
-- `mediciones` con `extra="forbid"`: una clave mal escrita (`pTriciptal`) debe dar `422` y no un resultado silenciosamente en `null`. Misma regla para `paciente` y para el nivel raíz del request (por ejemplo, un campo `resultados` enviado por el cliente se rechaza). Decisión P-9 cerrada: `extra="forbid"` en los tres niveles.
+- En los serializers, los campos opcionales usan `required=False`, `allow_null=True` y valor predeterminado `None`. Solo `mediciones` es obligatorio en el request; `paciente` es opcional.
+- `sexo`: restringir a `"M"` o `"F"` con `ChoiceField`.
+- Numéricos: `peso`, `talla`, `cuello`, `brazo`, `cintura`, `cadera` deben ser mayores que cero; pliegues admiten cero; `edad` entre 0 y 120. Rechazar `NaN` e infinitos.
+- `mediciones` rechaza claves desconocidas: una clave mal escrita (`pTriciptal`) debe dar `422` y no un resultado silenciosamente en `null`. Misma regla para `paciente` y para el nivel raíz del request (por ejemplo, un campo `resultados` enviado por el cliente se rechaza). Decisión P-9 cerrada: validación estricta en los tres niveles.
 - `fechaNacimiento` en formato ISO `YYYY-MM-DD`, validada como fecha real y **no futura**.
 - **Consistencia `edad` / `fechaNacimiento` (P-4 cerrada):** `edad` manda. Si llegan ambas y la edad calculada desde `fechaNacimiento` (a la fecha del servidor) difiere de `edad` en **más de 1 año**, `422` con clave `paciente.edad`. Si solo llega `fechaNacimiento`, la edad se deriva de ella; si el resultado queda fuera de 0–120, `422`.
-- **Rangos de plausibilidad (P-6 cerrada)**, constantes con nombre en `schemas.py`: `peso` 2–500 kg; `talla` 30–272 cm; `cuello` 10–80 cm; `brazo` 5–80 cm; `cintura` 20–250 cm; `cadera` 30–250 cm; cada pliegue 0–80 mm. Fuera de rango ⇒ `422`.
+- **Rangos de plausibilidad (P-6 cerrada)**, constantes con nombre en `serializers.py`: `peso` 2–500 kg; `talla` 30–272 cm; `cuello` 10–80 cm; `brazo` 5–80 cm; `cintura` 20–250 cm; `cadera` 30–250 cm; cada pliegue 0–80 mm. Fuera de rango ⇒ `422`.
 - `mediciones` no puede venir vacío: al menos una medición informada (no `null`). Si no, `422`.
-- Validaciones de un campo en `field_validator`; reglas cruzadas en `model_validator`. Mensajes de error en español.
+- Validaciones de un campo en `validate_<campo>`; reglas cruzadas en `validate()`. Mensajes de error en español.
 - `ResultadosAntropometria` **siempre incluye las siete claves**; la que no se pudo calcular va en `null` (no se omite).
 
 ### 4.6 Autenticación entre Node y Python (P-10 cerrada)
@@ -245,7 +248,7 @@ Reglas de diseño:
 - Si `DEBUG` es falso y `API_TOKEN` está vacío, **el servicio no arranca** (falla rápido con un error explícito). Con `DEBUG=True` y token vacío la autenticación se desactiva y se registra una advertencia.
 - El servicio se despliega solo en red interna: no se publica el puerto hacia afuera (en Docker, red privada compartida con Node).
 - El token nunca se loguea ni se devuelve en respuestas.
-- Implementación en `core/security.py` como dependencia de FastAPI usada por el router de `/calcular-antropometria`.
+- Implementación en `core/security.py` como permiso DRF aplicado a `/calcular-antropometria`.
 
 ---
 
@@ -272,7 +275,7 @@ Cuando el responsable entregue una fórmula, actualizar esta tabla (estado → "
 ### 5.3 Reglas por función
 
 - Una función pública por indicador, con nombre `calcular_<indicador>` (ej. `calcular_imc`), en su propio archivo dentro de `core/formulas/`.
-- **Funciones puras**: reciben valores simples (floats, strings), no modelos Pydantic ni objetos de FastAPI; no leen entorno, no loguean, no tienen efectos secundarios.
+- **Funciones puras**: reciben valores simples (floats, strings), no serializers ni objetos de Django/DRF; no leen entorno, no loguean, no tienen efectos secundarios.
 - Devuelven `float | None` (`bodyAge`, cuando se habilite, será `int | None`; ver SPEC §8.5). Devuelven `None` si falta cualquier insumo obligatorio.
 - **Docstring obligatorio** en cada fórmula, en español, con: ecuación, unidades de entrada y salida, **fuente bibliográfica completa**, rango de validez y población a la que aplica. Sin cita no hay merge.
 - **Sin divisiones por cero**: usar la división segura de `math_utils` y devolver `None`.
@@ -347,7 +350,7 @@ Se sigue el patrón de `HolidayService` de TaskFlow: timeout corto explícito (a
 
 ## 8. Convenciones de código
 
-- **Python 3.12**. Type hints en todas las firmas públicas (`float | None`, no `Optional` salvo en modelos Pydantic, donde se sigue el estilo del contrato).
+- **Python 3.12**. Type hints en todas las firmas públicas (`float | None`).
 - `snake_case` para archivos, funciones y variables; `PascalCase` para clases; `MAYUSCULAS` para constantes.
 - Servicios: `...Service`. Excepciones propias: sufijo `Error` (ej. `DatosInsuficientesError`). Schemas: los nombres fijados en 4.5.
 - Idioma: **identificadores técnicos en inglés cuando son infraestructura** (`Service`, `handler`), **dominio en español** (`calcular_imc`, `cintura`, `fechaNacimiento`) por ser la lengua del contrato. **Comentarios, docstrings, mensajes de error y nombres de tests en español rioplatense (voseo).**
@@ -360,7 +363,7 @@ Se sigue el patrón de `HolidayService` de TaskFlow: timeout corto explícito (a
 
 ## 9. Manejo de errores y logging
 
-- **Handlers centralizados** en `core/exceptions.py`, registrados en `config/app.py` (equivalente a `custom_exception_handler`): `RequestValidationError` → `422`; excepciones propias → código que corresponda; `Exception` → `500` genérico.
+- **Handler centralizado** en `core/exceptions.py`, registrado en `REST_FRAMEWORK["EXCEPTION_HANDLER"]` desde `config/settings.py`: errores de validación → `422`; excepciones propias → código que corresponda; excepciones no previstas → `500` genérico.
 - Todos los errores usan el envelope de 4.4. **Nunca** devolver trazas ni mensajes internos.
 - No usar `except Exception: pass`. Capturas **acotadas** y siempre con `logger.exception` o un re-raise con contexto. El `except Exception` amplio solo se admite en el handler global.
 - Logging con `logging.getLogger(__name__)` y `LOGGING` en `config/settings.py` (mismo formato y salida a stdout que TaskFlow).
@@ -380,10 +383,12 @@ Variables previstas (nombres tentativos, solo las que hagan falta):
 | `PORT` | `8000` | Puerto del servidor |
 | `LOG_LEVEL` | `INFO` | Nivel de logging |
 | `API_TOKEN` | *(vacío)* | Token compartido con Node (header `X-API-Key`). Obligatorio si `DEBUG` es falso: sin él el servicio no arranca (ver 4.6) |
+| `DJANGO_SECRET_KEY` | *(vacío)* | Obligatoria fuera de desarrollo; en desarrollo vacío genera una clave efímera |
+| `ALLOWED_HOSTS` | *(vacío)* | Hosts permitidos por Django, separados por coma; configurar para el entorno |
 
-**Dependencias** (`requirements.txt`, único archivo, versiones fijadas con `==`): `fastapi`, `pydantic`, `uvicorn`, `python-dotenv`, y para tests `pytest`, `pytest-cov`, `httpx`. Al implementar, fijar la última versión estable compatible con Python 3.12 (no copiar las versiones de TaskFlow). **No** agregar Django, DRF, Channels, Redis, Graphene, drivers de base de datos ni clientes de MongoDB.
+**Dependencias** (`requirements.txt`, único archivo, versiones fijadas con `==`): `Django`, `djangorestframework`, `daphne`, `python-dotenv`, `pytest` y `pytest-cov`. Fijar versiones estables compatibles con Python 3.12. **No** agregar Channels, Redis, Graphene, drivers de base de datos ni clientes de MongoDB.
 
-**Docker** (mismas pautas que TaskFlow): `python:3.12-slim`; `PYTHONDONTWRITEBYTECODE=1` y `PYTHONUNBUFFERED=1`; `WORKDIR /app`; copiar `requirements.txt` antes que el código; `EXPOSE 8000`; `CMD` con `uvicorn config.app:app --host 0.0.0.0 --port ${PORT:-8000}`. Sin `collectstatic` ni `migrate`. `docker-compose.yml` con un único servicio `web` y `env_file`.
+**Docker** (mismas pautas que TaskFlow): `python:3.12-slim`; `PYTHONDONTWRITEBYTECODE=1` y `PYTHONUNBUFFERED=1`; `WORKDIR /app`; copiar `requirements.txt` antes que el código; `EXPOSE 8000`; servir `config.asgi:application` con Daphne en `${PORT:-8000}`. Sin `collectstatic` ni `migrate`. `docker-compose.yml` con un único servicio `web` y `env_file`.
 
 ---
 
@@ -398,7 +403,7 @@ Variables previstas (nombres tentativos, solo las que hagan falta):
   3. Divisor cero o valor límite ⇒ `None`, sin excepción.
   4. Variante por `sexo` cuando la fórmula distinga.
   5. Redondeo (incluyendo un caso exacto en `.5`).
-- Tests de endpoint con `TestClient`: `200` completo, `200` con nulos, `422` por valor inválido, `422` por clave desconocida, `500` generado con un `monkeypatch` que fuerce una excepción (verificando que el envelope no filtre detalles).
+- Tests de endpoint con `rest_framework.test.APIClient`: `200` completo, `200` con nulos, `422` por valor inválido, `422` por clave desconocida, `500` generado con un `monkeypatch` que fuerce una excepción (verificando que el envelope no filtre detalles).
 - Prohibido derivar valores esperados ejecutando la propia fórmula bajo prueba, o desde los números ilustrativos del contrato.
 - No crear archivos de test vacíos.
 
@@ -440,7 +445,7 @@ El responsable delegó la elección de métodos y la definición de validaciones
 | P-6 | Rangos de plausibilidad | ✅ Cerrada (4.5) |
 | P-7 | Falla de Python: Node no guarda y devuelve error controlado (SPEC §13.3) | 🟡 Propuesta, a ratificar en el repo de Node |
 | P-8 | Excepción inesperada en un indicador ⇒ `null` solo en ese indicador | 🟡 Propuesta vigente |
-| P-9 | `extra="forbid"` en raíz, `paciente` y `mediciones` | ✅ Cerrada |
+| P-9 | Rechazo de claves desconocidas en raíz, `paciente` y `mediciones` | ✅ Cerrada |
 | P-10 | Ruta `/calcular-antropometria` y token `X-API-Key` obligatorio | ✅ Cerrada (4.6) |
 | P-11 | Todo `null` ⇒ `422` (`DatosInsuficientesError`) | ✅ Cerrada |
 | P-12 | Citas de IMC e ICC (SPEC §8.1 y §8.7); decimales 2 y 2 | ✅ Cerrada |
