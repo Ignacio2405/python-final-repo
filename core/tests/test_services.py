@@ -25,7 +25,7 @@ def test_servicio_armar_resultados_manuales(
         "porcentajeMG": 30.4,
         "porcentajeMM": 32.1,
         "mBasal": 1395.3,
-        "bodyAge": None,
+        "bodyAge": 35,
         "grVisceral": 1.08,
         "icc": 0.78,
     }

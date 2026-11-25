@@ -104,6 +104,26 @@ def test_calcular_porcentaje_mm_con_correccion_por_sexo() -> None:
     assert calcular_porcentaje_mm(68.5, 165, 29, 18, "F", 17) is None
 
 
-def test_edad_corporal_sin_formula_validada() -> None:
-    # 1) Hasta contar con un método validado, el contrato devuelve None.
-    assert calcular_edad_corporal() is None
+def test_calcular_edad_corporal_heuristica_autorizada() -> None:
+    # 1) F, 32 años: (30.4043 - 24) * 0.5 = 3.20215; ajuste = 3; edad = 35.
+    assert calcular_edad_corporal(32, "F", 30.4043) == 35
+
+    # 2) El redondeo de una mitad positiva y negativa sigue ROUND_HALF_UP.
+    assert calcular_edad_corporal(32, "F", 25) == 33
+    assert calcular_edad_corporal(32, "F", 23) == 31
+
+    # 3) El ajuste queda limitado a -8 y +12 años.
+    assert calcular_edad_corporal(32, "F", 0) == 24
+    assert calcular_edad_corporal(32, "F", 100) == 44
+
+
+def test_calcular_edad_corporal_restringir_poblacion_e_insumos() -> None:
+    # 1) La heurística solo está autorizada para mujeres de 30–39 años.
+    assert calcular_edad_corporal(29, "F", 30) is None
+    assert calcular_edad_corporal(40, "F", 30) is None
+    assert calcular_edad_corporal(32, "M", 30) is None
+
+    # 2) Sin porcentaje de grasa válido, no se estima la edad corporal.
+    assert calcular_edad_corporal(32, "F", None) is None
+    assert calcular_edad_corporal(32, "F", float("nan")) is None
+    assert calcular_edad_corporal(32, "F", float("inf")) is None

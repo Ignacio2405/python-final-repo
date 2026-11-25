@@ -2,16 +2,16 @@
 
 | | |
 |---|---|
-| **Versión** | 0.3 |
+| **Versión** | 0.4 |
 | **Fecha** | 2026-11-25 |
-| **Estado** | Especificación cerrada para implementar, salvo `bodyAge` (sin método validado) y las propuestas P-7 y P-8. |
+| **Estado** | Especificación cerrada para implementar, salvo las propuestas P-7 y P-8. `bodyAge` tiene una heurística autorizada, explícitamente no clínica ni validada. |
 | **Fuente de arquitectura** | `AGENTS.md` (este documento no la redefine, la referencia) |
 | **Fuente de verdad funcional** | Este documento |
 
-> **Convención de estados.** ✅ **Definido** (se puede implementar), 🟡 **Propuesto** (hay una propuesta concreta pendiente de ratificación), ⛔ **Pendiente** (falta método; no se implementa y el indicador devuelve `null`).
+> **Convención de estados.** ✅ **Definido** (se puede implementar), 🟡 **Propuesto** (hay una propuesta concreta pendiente de ratificación), ⛔ **Pendiente** (falta método; no se implementa y el indicador devuelve `null`), ⚠ **Heurística autorizada** (se implementa solo en el alcance aprobado y nunca se presenta como clínicamente validada).
 > Los identificadores `P-n` remiten a la sección 18.
 
-> **Origen de las decisiones.** El responsable del proyecto delegó la elección de métodos y la definición de validaciones. Las ecuaciones de la sección 8 se transcriben de la bibliografía citada, no de un archivo entregado. **Antes del primer merge de cada fórmula hay que contrastar los coeficientes con la fuente primaria** y dejar el cálculo manual de verificación en el test.
+> **Origen de las decisiones.** El responsable del proyecto delegó la elección de métodos y la definición de validaciones. Las ecuaciones clínicas de la sección 8 se transcriben de la bibliografía citada, no de un archivo entregado. **Antes del primer merge de cada fórmula clínica hay que contrastar los coeficientes con la fuente primaria** y dejar el cálculo manual de verificación en el test. `bodyAge` es una excepción aprobada expresamente por el responsable (P-13): no tiene fuente bibliográfica ni validación clínica.
 
 ---
 
@@ -22,7 +22,7 @@ Este documento especifica el módulo independiente de cálculos nutricionales y 
 - `AGENTS.md` define **cómo** se construye. Este documento define **qué** hace el módulo: contratos, fórmulas, reglas de negocio, validaciones y criterios de aceptación.
 - El stack HTTP vigente es **Django + Django REST Framework**, servido por Daphne. Se eligió para alinearlo con el stack de referencia TaskFlow; no se configura persistencia Django.
 - **TaskFlow** se usa solo como referencia técnica y estructural. Nada de su dominio forma parte del módulo.
-- Los valores del ejemplo de la sección 7.1 se calcularon a mano con las ecuaciones de la sección 8 para el payload de la sección 6.2.
+- Los valores del ejemplo de la sección 7.1 se calcularon a mano con las ecuaciones y la heurística autorizada de la sección 8 para el payload de la sección 6.2.
 
 ## 2. Objetivo del módulo
 
@@ -71,7 +71,7 @@ El análisis del backend Node.js y de MongoDB **no pudo realizarse**: no se disp
 | `crearConsultaService` / `actualizarConsultaService` | Material previo | Nombres reales y dónde se arma el payload hacia Python. |
 | Modelo `Paciente` con `sexo` y `fechaNacimiento` | Material previo | Nombres de campos, tipo de `sexo` en Mongoose y valores posibles. |
 | Cálculo de `edad` en Node | `AGENTS.md` §7.1 | Dónde y cómo se calcula (zona horaria, fecha de referencia). |
-| Tipo de `grVisceral` y `bodyAge` | Contrato | Que el esquema admita decimales (`grVisceral` devuelve 2 decimales) y `null`. |
+| Tipo de `grVisceral` y `bodyAge` | Contrato | Que el esquema admita `grVisceral` decimal y `bodyAge` entero; ambos pueden ser `null`. |
 | Envío del header `X-API-Key` | Sección 12 | Que Node lea el token de su configuración y lo envíe. |
 
 Cualquier diferencia se documenta en la sección 18.2 con una adaptación compatible.
@@ -84,7 +84,7 @@ Cualquier diferencia se documenta en la sección 18.2 con una adaptación compat
 | **Node.js** | Consultar al paciente; obtener `sexo` y `fechaNacimiento`; calcular `edad`; mapear `sexo` a `"M"`/`"F"`; construir el payload; enviar `X-API-Key`; llamar a Python con timeout; manejar caídas y respuestas inválidas; persistir mediciones y resultados. | Duplicar fórmulas. Persistir resultados corruptos o desfasados. |
 | **Python (este módulo)** | Autenticar, validar, calcular, redondear; devolver siempre las siete claves; `422` con mensajes claros; `401`; `500` genérico. | Conectarse a MongoDB, llamar a Node, guardar datos del paciente, loguear el payload. |
 | **MongoDB** | Conservar mediciones y resultados. | — |
-| **Responsable del proyecto** | Ratificar P-7 y P-8; aportar un método validado para `bodyAge`. | — |
+| **Responsable del proyecto** | Ratificar P-7 y P-8; autorizó la heurística no clínica de `bodyAge` (P-13). | — |
 
 ## 6. Contrato de entrada
 
@@ -160,7 +160,7 @@ Resultado para el payload de la sección 6.2 (cálculo manual en cada indicador 
     "porcentajeMG": 30.4,
     "porcentajeMM": 32.1,
     "mBasal": 1395.3,
-    "bodyAge": null,
+    "bodyAge": 35,
     "grVisceral": 1.08,
     "icc": 0.78
   }
@@ -171,7 +171,7 @@ Resultado para el payload de la sección 6.2 (cálculo manual en cada indicador 
 
 - Siempre **exactamente siete claves**, sin omitir ni agregar.
 - No disponible ⇒ `null` (nunca `0`, `NaN`, `Infinity` ni string vacío).
-- El redondeo se aplica una sola vez, en el servicio, con `ROUND_HALF_UP`.
+- Los indicadores clínicos se redondean una sola vez, en el servicio, con `ROUND_HALF_UP`. La heurística `bodyAge` redondea su ajuste a años con ese mismo modo.
 - Un `200` implica que **al menos un** indicador tiene valor (sección 9.9).
 
 | Clave | Descripción | Unidad | Decimales (P-5, ✅ cerrada) |
@@ -180,7 +180,7 @@ Resultado para el payload de la sección 6.2 (cálculo manual en cada indicador 
 | `porcentajeMG` | Porcentaje de masa grasa | % | 1 |
 | `porcentajeMM` | Porcentaje de masa muscular esquelética | % | 1 |
 | `mBasal` | Metabolismo basal | kcal/día | 1 |
-| `bodyAge` | Edad corporal estimada | años | entero (hoy siempre `null`) |
+| `bodyAge` | Edad corporal estimada (heurística no clínica) | años | entero |
 | `grVisceral` | Índice de conicidad (indicador antropométrico de adiposidad abdominal) | adimensional | 2 |
 | `icc` | Índice cintura-cadera | adimensional | 2 |
 
@@ -196,7 +196,7 @@ El nombre `grVisceral` se mantiene por compatibilidad con el esquema de Node, pe
 
 ## 8. Especificación de indicadores
 
-Regla general: **no se inventan fórmulas ni se presentan estimaciones como clínicamente validadas**.
+Regla general: **no se inventan fórmulas ni se presentan estimaciones como clínicamente validadas**. Una heurística solo puede implementarse con autorización expresa, alcance delimitado y rotulación no clínica; CALC-005 es la única autorizada actualmente.
 
 ### 8.0 Resumen de estado
 
@@ -206,7 +206,7 @@ Regla general: **no se inventan fórmulas ni se presentan estimaciones como clí
 | CALC-002 | `porcentajeMG` | Durnin-Womersley 1974 + Siri 1961 | ✅ |
 | CALC-003 | `porcentajeMM` | Heymsfield 1982 (músculo esquelético) | ✅ |
 | CALC-004 | `mBasal` | Mifflin-St Jeor 1990 | ✅ |
-| CALC-005 | `bodyAge` | Sin método validado | ⛔ |
+| CALC-005 | `bodyAge` | Heurística autorizada, no clínica (P-13) | ⚠ |
 | CALC-006 | `grVisceral` | Índice de conicidad, Valdez 1991 | ✅ |
 | CALC-007 | `icc` | Cociente cintura/cadera | ✅ |
 
@@ -291,13 +291,22 @@ Método: **Heymsfield et al. (1982)**. Estima **masa muscular esquelética** a p
 
 Harris-Benedict se evaluó y no se usa. El metabolismo basal **no** es el gasto energético total y no incorpora actividad física; un gasto energético total sería un indicador nuevo.
 
-### 8.5 CALC-005 — Edad corporal (`bodyAge`) ⛔
+### 8.5 CALC-005 — Edad corporal (`bodyAge`) ⚠
 
-**Decisión: no se implementa y devuelve siempre `null`.** No existe una fórmula validada de "edad corporal" o "edad metabólica" que se pueda calcular con las mediciones del contrato. Los valores que muestran las balanzas de bioimpedancia provienen de algoritmos propietarios. Fabricar una ecuación propia produciría números con apariencia de precisión pero sin respaldo: con el error típico de los métodos indirectos, un error de pocos puntos de grasa se traduce en una diferencia de varios años en la "edad" resultante.
+**No es una métrica clínica estandarizada y no se presenta como diagnóstico ni como edad metabólica validada.** Por autorización expresa del responsable (P-13), se implementa una heurística orientativa basada en `%MG`, limitada a mujeres de 30–39 años. No reproduce los algoritmos propietarios de balanzas de bioimpedancia ni tiene validación clínica o fuente bibliográfica.
 
-- La función `calcular_edad_corporal` existe como contrato y devuelve `None`.
-- La clave `bodyAge` se mantiene en las siete claves para no romper a Node.
-- Para habilitarlo se necesita una referencia validada (autor, año, ecuación, población). Hasta entonces, el estado sigue en ⛔ (P-5, parte `bodyAge`).
+| Aspecto | Definición |
+|---|---|
+| **Fórmula** | `ajuste = limitar(ROUND_HALF_UP((porcentajeMG - 24) × 0.5), -8, 12)`; `bodyAge = max(18, edad + ajuste)`. |
+| **Variables** | `edad` (años), `sexo` (`"F"`), `porcentajeMG` (%) calculado sin redondear. |
+| **Salida** | Años enteros. |
+| **Población de aplicabilidad** | Solo mujeres de 30–39 años, inclusive. |
+| **`null` si** | Falta la edad o `%MG`; el sexo no es `"F"`; la edad queda fuera de 30–39; o `%MG` no es finito. |
+| **Redondeo** | El ajuste usa `ROUND_HALF_UP`, no `round()` de Python; luego se limita a −8/+12 años. |
+| **Fundamento** | Heurística propuesta por el responsable y autorizada el 25/11/2026 (P-13). No se atribuye a una publicación ni se considera clínicamente validada. |
+| **Validación a mano** | Ejemplo de la sección 6.2: `%MG` sin redondear ≈ `30.4043`; `(30.4043 − 24) × 0.5 = 3.20215` ⇒ ajuste `3` ⇒ `32 + 3 = 35`. |
+
+El `bodyAge` resultante es orientativo y no debe mostrarse aislado de esta advertencia. Si `%MG` no se puede calcular, `bodyAge` también queda en `null`.
 
 ### 8.6 CALC-006 — Grasa visceral: índice de conicidad (`grVisceral`) ✅
 
@@ -330,7 +339,7 @@ Reglas: no se presenta como diagnóstico ni como medición con equipamiento méd
 1. **Independencia.** Cada indicador se calcula por separado; un dato faltante solo anula los que dependen de él.
 2. **Dependencias.** Si un indicador usa a otro, usa el valor sin redondear; si el insumo es `null`, el dependiente es `null`.
 3. **Unidades.** Fijas (sección 6.4). Las conversiones viven solo en `math_utils`.
-4. **Redondeo.** `ROUND_HALF_UP` con `Decimal`, una sola vez en el servicio. Prohibido `round()` nativo.
+4. **Redondeo.** `ROUND_HALF_UP` con `Decimal`; los indicadores clínicos se redondean una sola vez en el servicio. `bodyAge` redondea solo su ajuste a años como parte de la heurística. Prohibido `round()` nativo.
 5. **Metabolismo basal.** No incluye actividad física.
 6. **Masa muscular.** `porcentajeMM` es masa muscular esquelética; no se equipara con masa magra ni masa libre de grasa.
 7. **Estimaciones.** No son diagnósticos ni mediciones con equipamiento clínico.
@@ -499,7 +508,7 @@ Estructura **conceptual** compatible con Mongoose; debe adaptarse al esquema rea
 | CA-018 | Nunca se devuelve `NaN` ni `Infinity`. |
 | CA-019 | Los logs no contienen el payload completo ni datos identificables. |
 | CA-020 | `GET /health` responde `200` con `status` y `service`, sin token. |
-| CA-021 | `bodyAge` devuelve siempre `null` y no existe código que invente su fórmula. |
+| CA-021 | `bodyAge` estima `35` para el ejemplo de sección 6.2; solo aplica a mujeres de 30–39 años con `%MG` disponible y usa el ajuste limitado −8/+12 con `ROUND_HALF_UP`. En otro sexo, edad fuera del rango o sin `%MG`, devuelve `null`; se declara siempre como heurística no clínica. |
 | CA-022 | Sin `X-API-Key` o con uno incorrecto, `POST /calcular-antropometria` devuelve `401`. |
 | CA-023 | Con `DEBUG` falso y `API_TOKEN` vacío, el servicio no arranca. |
 | CA-024 | `edad` y `fechaNacimiento` que difieren en más de 1 año devuelven `422`. |
@@ -513,8 +522,8 @@ Estructura **conceptual** compatible con Mongoose; debe adaptarse al esquema rea
 - Python es responsable de los cálculos; Node.js, de la integración y la persistencia; MongoDB conserva mediciones y resultados.
 - El frontend no calcula indicadores. No se duplican fórmulas en Node.js.
 - No se modifica la estructura general del proyecto sin justificación escrita.
-- No se usan fórmulas sin documentación ni cita bibliográfica.
-- No se devuelven estimaciones sin metodología definida (`bodyAge`).
+- No se usan fórmulas clínicas sin documentación ni cita bibliográfica.
+- `bodyAge` es la única heurística autorizada y debe describirse siempre como no clínica, limitada y no validada.
 - No se confunde metabolismo basal con gasto energético total, ni masa muscular con masa magra o libre de grasa.
 - No se presentan estimaciones antropométricas como diagnósticos.
 - No se agregan dependencias de persistencia ni componentes de TaskFlow que no se usan (Channels, Redis, Graphene, drivers de base de datos o MongoDB).
@@ -530,7 +539,7 @@ Estructura **conceptual** compatible con Mongoose; debe adaptarse al esquema rea
 | P-2 | `porcentajeMM`: Heymsfield, masa muscular esquelética (8.3) | ✅ |
 | P-3 | `mBasal`: Mifflin-St Jeor (8.4) | ✅ |
 | P-4 | `edad` manda; `422` si difiere de `fechaNacimiento` en más de 1 año (6.3) | ✅ |
-| P-5 | `grVisceral` = índice de conicidad, 2 decimales (8.6); `bodyAge` sin método validado, `null` (8.5) | ✅ / ⛔ `bodyAge` |
+| P-5 | `grVisceral` = índice de conicidad, 2 decimales (8.6) | ✅ |
 | P-6 | Rangos de plausibilidad (6.4) | ✅ |
 | P-7 | Política de Node ante fallas (13.3) | 🟡 Ratificar en el repo de Node |
 | P-8 | Fallo de un indicador ⇒ `null` solo en ese indicador (9.10) | 🟡 |
@@ -538,17 +547,18 @@ Estructura **conceptual** compatible con Mongoose; debe adaptarse al esquema rea
 | P-10 | Ruta fija y token `X-API-Key` obligatorio (12.1) | ✅ |
 | P-11 | Todo `null` ⇒ `422` (9.9) | ✅ |
 | P-12 | Citas de IMC e ICC, decimales 2 y 2 (8.1, 8.7) | ✅ |
+| P-13 | `bodyAge` usa heurística autorizada, solo mujeres de 30–39 años, con ajuste por `%MG` limitado −8/+12; no validada ni clínica (8.5) | ✅ Autorizada, no clínica |
 
-Pendiente real: aportar un método validado para `bodyAge`, ratificar P-7 y P-8, y **contrastar los coeficientes de 8.2, 8.3 y 8.6 con las fuentes primarias antes del merge**.
+Pendiente real: ratificar P-7 y P-8, y **contrastar los coeficientes de 8.2, 8.3 y 8.6 con las fuentes primarias antes del merge**.
 
 ### 18.2 Discrepancias detectadas y adaptación adoptada
 
 | Tema | Diferencia | Adaptación |
 |---|---|---|
-| Ejemplo del contrato | `AGENTS.md` original y el material previo mostraban `bodyAge: 34` y `grVisceral: 6`, y valores de `porcentajeMG`, `porcentajeMM` y `mBasal` ilustrativos. | Se reemplazaron por los valores calculados a mano (7.1). `bodyAge` es `null`. |
+| Ejemplo del contrato | `AGENTS.md` original y el material previo mostraban `bodyAge: 34` y `grVisceral: 6`, y valores de `porcentajeMG`, `porcentajeMM` y `mBasal` ilustrativos. | Se reemplazaron por los valores calculados a mano (7.1). `bodyAge: 35` resulta de la heurística autorizada (8.5). |
 | `grVisceral` | El material previo lo mostraba como entero (6), con escala no definida. | Pasa a ser el índice de conicidad con 2 decimales. Node y el frontend deben aceptar decimales y rotularlo. |
 | Framework HTTP | La especificación inicial no coincidía con el stack elegido para el módulo. | Se establece Django + DRF, servido por Daphne; no cambia el contrato HTTP ni los cálculos. |
-| `bodyAge` entero o decimal | El serializer DRF lo define como entero; los ejemplos, entero. | Hoy siempre `null`; si se habilita, será entero. |
+| `bodyAge` entero o decimal | El serializer DRF lo define como entero; los ejemplos, entero. | Se devuelve como entero únicamente cuando cumple el alcance de la heurística autorizada; si no, `null`. |
 | `cadera = 0` | El enunciado admitía `null` o error. | `422` en el schema; `None` en la fórmula por defensa. |
 | Fecha de nacimiento | `AGENTS.md` pedía fecha real. | Además se rechazan fechas futuras. |
 | Todo `null` | El enunciado admitía `200` con nulos. | `422` con `DatosInsuficientesError` (9.9). |

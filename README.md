@@ -38,8 +38,9 @@ También configurá `DJANGO_SECRET_KEY` y `ALLOWED_HOSTS`. La imagen sirve
 
 El servicio no persiste datos ni se conecta con MongoDB. No registres ni envíes
 datos identificables del paciente en los logs. `grVisceral` es el índice de
-conicidad, no una escala de bioimpedancia. `bodyAge` queda en `null` mientras no
-haya un método validado.
+conicidad, no una escala de bioimpedancia. `bodyAge` es una estimación
+heurística no clínica, disponible solo para mujeres de 30–39 años cuando se
+puede calcular `%MG`; en los demás casos queda en `null`.
 
 ## Pruebas
 

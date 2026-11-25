@@ -200,12 +200,12 @@ Reglas de la estructura:
   "ok": true,
   "resultados": {
     "imc": 25.16, "porcentajeMG": 30.4, "porcentajeMM": 32.1,
-    "mBasal": 1395.3, "bodyAge": null, "grVisceral": 1.08, "icc": 0.78
+    "mBasal": 1395.3, "bodyAge": 35, "grVisceral": 1.08, "icc": 0.78
   }
 }
 ```
 
-> Los valores del ejemplo se calcularon **a mano** con las ecuaciones del `SPEC.md` §8 para este payload (ver los pasos en cada indicador), salvo `bodyAge`, que queda en `null` (SPEC §8.5). Un test puede usar esos valores solo si el cálculo manual está documentado en el propio test. `grVisceral` es el índice de conicidad (SPEC §8.6), **no** la escala de grasa visceral de una balanza de bioimpedancia; el frontend debe rotularlo así.
+> Los valores del ejemplo se calcularon **a mano** con las ecuaciones y la heurística autorizada del `SPEC.md` §8 para este payload (ver los pasos en cada indicador). `bodyAge` es una estimación heurística no clínica y solo aplica a mujeres de 30–39 años con `%MG` calculable (SPEC §8.5). Un test puede usar esos valores solo si el cálculo manual está documentado en el propio test. `grVisceral` es el índice de conicidad (SPEC §8.6), **no** la escala de grasa visceral de una balanza de bioimpedancia; el frontend debe rotularlo así.
 
 ### 4.4 Response de error
 
@@ -256,7 +256,7 @@ Reglas de diseño:
 
 ### 5.1 Regla de oro
 
-**No se inventan fórmulas ni se presentan estimaciones como clínicamente validadas.** Una fórmula se implementa solo cuando el responsable del proyecto entregó la referencia exacta (autor, año, ecuación, unidades, rango de validez). Mientras tanto, la función existe como contrato pero **no se implementa**, y el indicador se devuelve en `null`.
+**No se inventan fórmulas ni se presentan estimaciones como clínicamente validadas.** Una fórmula clínica se implementa solo con referencia exacta (autor, año, ecuación, unidades, rango y población). Una heurística sin validación clínica solo se implementa con autorización explícita del responsable, población e insumos acotados, y documentación inequívoca de que no es clínica. `bodyAge` es la única excepción actualmente autorizada (P-13); no se debe generalizar a otros indicadores.
 
 ### 5.2 Estado de cada indicador
 
@@ -267,20 +267,20 @@ Reglas de diseño:
 | `porcentajeMG` | % Masa Grasa | 4 pliegues, `sexo`, `edad` | ✅ **Definido** (SPEC §8.2): Durnin-Womersley 1974 + Siri 1961. Decimales: 1. |
 | `porcentajeMM` | % Masa Muscular (esquelética) | `peso`, `talla`, `sexo`, `brazo`, `pTricipital` | ✅ **Definido** (SPEC §8.3): Heymsfield 1982. Decimales: 1. |
 | `mBasal` | Metabolismo Basal (kcal/día) | `peso`, `talla`, `edad`, `sexo` | ✅ **Definido** (SPEC §8.4): Mifflin-St Jeor 1990. Decimales: 1. |
-| `bodyAge` | Edad corporal/metabólica | — | ⛔ **PENDIENTE**: no existe método validado con los datos del contrato (SPEC §8.5). Siempre `null`. |
+| `bodyAge` | Edad corporal estimada | `edad`, `sexo`, `%MG` sin redondear | ⚠ Heurística autorizada, no clínica (SPEC §8.5, P-13): solo mujeres de 30–39 años; `null` fuera de alcance o sin `%MG`. |
 | `grVisceral` | Indicador antropométrico de grasa visceral (índice de conicidad) | `cintura`, `peso`, `talla` | ✅ **Definido** (SPEC §8.6): Valdez 1991. Decimales: 2. |
 
-Cuando el responsable entregue una fórmula, actualizar esta tabla (estado → "Implementado", con cita) **en el mismo cambio** que agrega el código.
+Cuando se autorice una fórmula o heurística nueva, actualizar esta tabla y su fundamento **en el mismo cambio** que agrega el código.
 
 ### 5.3 Reglas por función
 
 - Una función pública por indicador, con nombre `calcular_<indicador>` (ej. `calcular_imc`), en su propio archivo dentro de `core/formulas/`.
 - **Funciones puras**: reciben valores simples (floats, strings), no serializers ni objetos de Django/DRF; no leen entorno, no loguean, no tienen efectos secundarios.
-- Devuelven `float | None` (`bodyAge`, cuando se habilite, será `int | None`; ver SPEC §8.5). Devuelven `None` si falta cualquier insumo obligatorio.
-- **Docstring obligatorio** en cada fórmula, en español, con: ecuación, unidades de entrada y salida, **fuente bibliográfica completa**, rango de validez y población a la que aplica. Sin cita no hay merge.
+- Devuelven `float | None` (`bodyAge` devuelve `int | None`; ver SPEC §8.5). Devuelven `None` si falta cualquier insumo obligatorio o el caso queda fuera del alcance.
+- **Docstring obligatorio** en cada fórmula, en español, con: ecuación, unidades de entrada y salida, **fuente bibliográfica completa**, rango de validez y población a la que aplica. En heurísticas expresamente autorizadas, identificá la autorización y fecha, y declarala sin validación clínica ni fuente bibliográfica. Sin esa distinción no hay merge.
 - **Sin divisiones por cero**: usar la división segura de `math_utils` y devolver `None`.
 - Constantes y coeficientes de las ecuaciones: constantes con nombre en `MAYUSCULAS` al tope del archivo, nunca números mágicos inline.
-- Un indicador **no depende de otro ya redondeado**: si `bodyAge` necesita `imc`, se pasa el valor sin redondear (el redondeo ocurre una sola vez, en el servicio).
+- Un indicador **no depende de otro ya redondeado**: `bodyAge` recibe `%MG` sin redondear. Su ajuste se redondea a años con `ROUND_HALF_UP` antes de limitarlo.
 
 ### 5.4 Unidades (fijas y documentadas)
 
@@ -297,8 +297,8 @@ La conversión de talla a metros ocurre **únicamente** dentro de las fórmulas 
 ### 5.5 Redondeo y nulos
 
 - Un único helper `redondear(valor, decimales)` en `math_utils.py`, con modo **ROUND_HALF_UP** vía `Decimal` (el `round()` nativo usa redondeo bancario y daría resultados inesperados).
-- Decimales (P-5 cerrada): `imc` 2, `icc` 2, `porcentajeMG` 1, `porcentajeMM` 1, `mBasal` 1, `grVisceral` 2, `bodyAge` entero (hoy siempre `null`).
-- El redondeo se aplica **una sola vez**, en `AntropometriaService`, al armar `ResultadosAntropometria`. Las fórmulas devuelven valores sin redondear.
+- Decimales (P-5 cerrada): `imc` 2, `icc` 2, `porcentajeMG` 1, `porcentajeMM` 1, `mBasal` 1, `grVisceral` 2, `bodyAge` entero.
+- Los indicadores clínicos se redondean **una sola vez**, en `AntropometriaService`, al armar `ResultadosAntropometria`. La heurística `bodyAge` usa `redondear(..., 0)` con `ROUND_HALF_UP` para obtener su ajuste entero, como parte de su ecuación; el resto de indicadores se calcula sin redondeos intermedios.
 - Dato insuficiente ⇒ `None` en Python ⇒ `null` en JSON. **Nunca** `0`, `NaN` ni string vacío.
 
 ---
@@ -431,9 +431,9 @@ Variables previstas (nombres tentativos, solo las que hagan falta):
 
 ---
 
-## 13. Decisiones (estado al 2026-11-23)
+## 13. Decisiones (estado al 2026-11-25)
 
-El responsable delegó la elección de métodos y la definición de validaciones. Las referencias y ecuaciones completas están en `SPEC.md` §8. **Antes del primer merge de cada fórmula conviene contrastar los coeficientes con la fuente primaria citada** (el SPEC los transcribe de la bibliografía, no de un archivo entregado).
+El responsable delegó la elección de métodos y la definición de validaciones. Las referencias y ecuaciones completas están en `SPEC.md` §8. **Antes del primer merge de cada fórmula clínica conviene contrastar los coeficientes con la fuente primaria citada** (el SPEC los transcribe de la bibliografía, no de un archivo entregado). `bodyAge` es la excepción autorizada P-13: una heurística explícitamente no clínica y sin fuente bibliográfica.
 
 | # | Decisión | Estado |
 |---|---|---|
@@ -441,7 +441,7 @@ El responsable delegó la elección de métodos y la definición de validaciones
 | P-2 | `porcentajeMM`: masa muscular esquelética por Heymsfield 1982 | ✅ Cerrada |
 | P-3 | `mBasal`: Mifflin-St Jeor 1990 | ✅ Cerrada |
 | P-4 | `edad` manda; rechazo `422` si difiere de `fechaNacimiento` en más de 1 año | ✅ Cerrada (validación en 4.5) |
-| P-5 | `grVisceral` = índice de conicidad (2 decimales); `bodyAge` sin método validado, queda `null` | ✅ Cerrada (`bodyAge` ⛔ sin implementar) |
+| P-5 | `grVisceral` = índice de conicidad (2 decimales) | ✅ Cerrada |
 | P-6 | Rangos de plausibilidad | ✅ Cerrada (4.5) |
 | P-7 | Falla de Python: Node no guarda y devuelve error controlado (SPEC §13.3) | 🟡 Propuesta, a ratificar en el repo de Node |
 | P-8 | Excepción inesperada en un indicador ⇒ `null` solo en ese indicador | 🟡 Propuesta vigente |
@@ -449,13 +449,14 @@ El responsable delegó la elección de métodos y la definición de validaciones
 | P-10 | Ruta `/calcular-antropometria` y token `X-API-Key` obligatorio | ✅ Cerrada (4.6) |
 | P-11 | Todo `null` ⇒ `422` (`DatosInsuficientesError`) | ✅ Cerrada |
 | P-12 | Citas de IMC e ICC (SPEC §8.1 y §8.7); decimales 2 y 2 | ✅ Cerrada |
+| P-13 | Heurística de `bodyAge`: mujeres de 30–39, ajuste basado en `%MG`, límites −8/+12; explícitamente no clínica | ✅ Autorizada, no validada clínicamente (SPEC §8.5) |
 
 ---
 
 ## 14. Checklist de revisión antes de dar algo por terminado
 
 - [ ] Respeta la estructura y capas de la sección 3; ninguna fórmula en `views.py`.
-- [ ] Ninguna fórmula nueva sin cita bibliográfica en su docstring y sin entrada actualizada en la tabla 5.2.
+- [ ] Ninguna fórmula nueva sin cita bibliográfica; toda heurística autorizada está identificada como no clínica y tiene entrada actualizada en la tabla 5.2.
 - [ ] Las siete claves salen siempre; los datos insuficientes son `null`.
 - [ ] Sin divisiones por cero ni conversiones de unidad fuera de `math_utils`.
 - [ ] Errores con el envelope de 4.4; sin trazas ni datos del paciente en respuestas ni logs.

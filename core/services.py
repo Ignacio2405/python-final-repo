@@ -38,6 +38,7 @@ class AntropometriaService:
         paciente = datos.get("paciente") or {}
         sexo = paciente.get("sexo")
         edad = paciente.get("edad")
+        valores: dict[str, float | int | None] = {}
 
         calculos: tuple[tuple[str, Callable[[], float | int | None]], ...] = (
             ("imc", lambda: calcular_imc(mediciones["peso"], mediciones["talla"])),
@@ -63,7 +64,14 @@ class AntropometriaService:
                 edad,
                 sexo,
             )),
-            ("bodyAge", calcular_edad_corporal),
+            (
+                "bodyAge",
+                lambda: calcular_edad_corporal(
+                    edad,
+                    sexo,
+                    valores.get("porcentajeMG"),
+                ),
+            ),
             ("grVisceral", lambda: calcular_grasa_visceral(
                 mediciones["cintura"],
                 mediciones["peso"],
@@ -75,7 +83,6 @@ class AntropometriaService:
             ),
         )
 
-        valores: dict[str, float | int | None] = {}
         for indicador, calculo in calculos:
             try:
                 valores[indicador] = calculo()
