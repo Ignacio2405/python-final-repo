@@ -26,26 +26,28 @@ El endpoint `GET /health` no requiere autenticación. El endpoint
 `POST /calcular-antropometria` exige `X-API-Key` con el valor de `API_TOKEN`,
 salvo que `DEBUG=True` y el token esté vacío.
 
-## Despliegue en Render
+## Despliegue público en Render
 
-Creá un **Private Service** desde el repositorio y elegí **Docker** como
-runtime. El `Dockerfile` instala las dependencias e inicia Daphne en el puerto
-`PORT` si Render lo proporciona, o en `8000` como alternativa. No hacen falta
-una base de datos ni migraciones.
+Creá un **Web Service**, elegí el plan gratuito si está disponible y seleccioná
+**Docker** como runtime. Usá el `Dockerfile` de la raíz; instala las
+dependencias e inicia Daphne en el puerto `PORT` que Render asigna. No hacen
+falta una base de datos ni migraciones.
 
 Configurá estas variables en el servicio de Render:
 
 - `DEBUG=False`
 - `API_TOKEN`: secreto compartido con el backend Node; no lo expongas al frontend.
 - `DJANGO_SECRET_KEY`: clave secreta independiente de `API_TOKEN`.
-- `ALLOWED_HOSTS`: hostname interno que aparece en **Connect → Internal**, sin
-  protocolo, puerto ni rutas.
+- `ALLOWED_HOSTS`: hostname público exacto que Render asigna al servicio, por
+  ejemplo `mi-servicio.onrender.com`, sin `https://` ni rutas.
 - `LOG_LEVEL=INFO` (opcional).
 
 No configures `PORT` manualmente en Render y no subas el archivo `.env`.
-Configurá `/health` como health check. El servicio privado no tiene URL pública:
-Node debe conectarse usando la dirección interna indicada en **Connect → Internal**.
-Para que funcione, ambos servicios tienen que estar en el mismo workspace y región.
+Configurá `/health` como health check. La URL del servicio y `GET /health` son
+públicos; `POST /calcular-antropometria` requiere `X-API-Key`. Guardá el token
+solo en el backend Node y en las variables de Render, nunca en el frontend. Si
+Node también está en Render, puede llamar a Python usando la dirección interna
+de **Connect → Internal** para el tráfico entre servicios.
 
 ## Privacidad y alcance
 

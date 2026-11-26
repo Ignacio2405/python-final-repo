@@ -47,7 +47,7 @@ progIV-Taskflow/
 ├── conftest.py             # fixtures globales de pytest
 ├── pytest.ini
 ├── requirements.txt
-├── Dockerfile / docker-compose.yml / .dockerignore / .gitignore
+├── Dockerfile / .dockerignore / .gitignore
 └── manage.py
 ```
 
@@ -246,7 +246,8 @@ Reglas de diseño:
 - Header obligatorio `X-API-Key` con el valor de la variable de entorno `API_TOKEN`, comparado con `hmac.compare_digest`. Aplica a `POST /calcular-antropometria`; `GET /health` queda exento.
 - Falta o no coincide ⇒ `401` (envelope de 4.4).
 - Si `DEBUG` es falso y `API_TOKEN` está vacío, **el servicio no arranca** (falla rápido con un error explícito). Con `DEBUG=True` y token vacío la autenticación se desactiva y se registra una advertencia.
-- El servicio se despliega solo en red interna: no se publica el puerto hacia afuera (en Docker, red privada compartida con Node).
+- El despliegue acordado es un Render Web Service con URL pública para usar el plan gratuito. `POST /calcular-antropometria` exige `X-API-Key`; `GET /health` es público y no requiere token.
+- `API_TOKEN` se guarda solo en el backend Node y en las variables privadas de Render; nunca se envía desde el frontend. Si Node también está en Render, se prefiere la dirección interna entre servicios del mismo workspace y región.
 - El token nunca se loguea ni se devuelve en respuestas.
 - Implementación en `core/security.py` como permiso DRF aplicado a `/calcular-antropometria`.
 
@@ -388,7 +389,7 @@ Variables previstas (nombres tentativos, solo las que hagan falta):
 
 **Dependencias** (`requirements.txt`, único archivo, versiones fijadas con `==`): `Django`, `djangorestframework`, `daphne`, `python-dotenv`, `pytest` y `pytest-cov`. Fijar versiones estables compatibles con Python 3.12. **No** agregar Channels, Redis, Graphene, drivers de base de datos ni clientes de MongoDB.
 
-**Docker** (mismas pautas que TaskFlow): `python:3.12-slim`; `PYTHONDONTWRITEBYTECODE=1` y `PYTHONUNBUFFERED=1`; `WORKDIR /app`; copiar `requirements.txt` antes que el código; `EXPOSE 8000`; servir `config.asgi:application` con Daphne en `${PORT:-8000}`. Sin `collectstatic` ni `migrate`. `docker-compose.yml` con un único servicio `web` y `env_file`.
+**Docker y Render:** usar el `Dockerfile` existente con `python:3.12-slim`, `PYTHONDONTWRITEBYTECODE=1`, `PYTHONUNBUFFERED=1`, `WORKDIR /app`, instalación desde `requirements.txt` y Daphne sirviendo `config.asgi:application` en `${PORT:-8000}`. En Render se crea un **Web Service** con runtime Docker y plan gratuito; Render proporciona `PORT`. No ejecutar `collectstatic` ni `migrate`, porque el módulo no usa archivos estáticos ni base de datos. No se requiere `docker-compose.yml`.
 
 ---
 
@@ -431,7 +432,7 @@ Variables previstas (nombres tentativos, solo las que hagan falta):
 
 ---
 
-## 13. Decisiones (estado al 2026-11-25)
+## 13. Decisiones (estado al 2026-11-26)
 
 El responsable delegó la elección de métodos y la definición de validaciones. Las referencias y ecuaciones completas están en `SPEC.md` §8. **Antes del primer merge de cada fórmula clínica conviene contrastar los coeficientes con la fuente primaria citada** (el SPEC los transcribe de la bibliografía, no de un archivo entregado). `bodyAge` es la excepción autorizada P-13: una heurística explícitamente no clínica y sin fuente bibliográfica.
 
@@ -450,6 +451,7 @@ El responsable delegó la elección de métodos y la definición de validaciones
 | P-11 | Todo `null` ⇒ `422` (`DatosInsuficientesError`) | ✅ Cerrada |
 | P-12 | Citas de IMC e ICC (SPEC §8.1 y §8.7); decimales 2 y 2 | ✅ Cerrada |
 | P-13 | Heurística de `bodyAge`: mujeres de 30–39, ajuste basado en `%MG`, límites −8/+12; explícitamente no clínica | ✅ Autorizada, no validada clínicamente (SPEC §8.5) |
+| P-14 | Despliegue público como Render Web Service para usar el plan gratuito; `POST` protegido por `X-API-Key` y `/health` público | ✅ Autorizada (2026-11-26) |
 
 ---
 

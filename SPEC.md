@@ -59,7 +59,7 @@ Frontend ──(antropometria.mediciones)──▶ Node.js ──POST {paciente,
                                         MongoDB (antropometria.mediciones + antropometria.resultados)
 ```
 
-Capas internas (detalle en `AGENTS.md` §3): `views → services → formulas → math_utils`. Los endpoints DRF no contienen matemática; los serializers validan el contrato; las fórmulas son funciones puras `calcular_<indicador>`; el redondeo ocurre una sola vez en el servicio. El servicio es **sin estado** y **sin base de datos**, y se despliega solo en red interna.
+Capas internas (detalle en `AGENTS.md` §3): `views → services → formulas → math_utils`. Los endpoints DRF no contienen matemática; los serializers validan el contrato; las fórmulas son funciones puras `calcular_<indicador>`; el redondeo ocurre una sola vez en el servicio. El servicio es **sin estado** y **sin base de datos**. Se despliega como Render Web Service público para usar el plan gratuito; el cálculo sigue protegido por `X-API-Key`.
 
 ### 4.1 Verificación contra el backend existente
 
@@ -394,7 +394,7 @@ Handlers centralizados en `core/exceptions.py`. Nunca se devuelven trazas ni men
 - Si `DEBUG` es falso y `API_TOKEN` está vacío, **el servicio no arranca**.
 - Con `DEBUG=True` y token vacío, la autenticación se desactiva y se registra una advertencia.
 - El token no se loguea ni se devuelve.
-- El servicio se despliega solo en red interna: no se publica el puerto hacia afuera.
+- El servicio tiene una URL pública. `POST /calcular-antropometria` requiere `X-API-Key`, mientras que `GET /health` es público. El token se guarda únicamente en el backend Node y en Render; nunca se expone al frontend. Si ambos servicios están en Render, Node puede usar la dirección interna para comunicarse con Python.
 
 ### 12.2 `GET /health`
 
@@ -478,7 +478,7 @@ Estructura **conceptual** compatible con Mongoose; debe adaptarse al esquema rea
 
 **Mantenibilidad.** Un archivo por indicador. Docstring obligatorio con ecuación, unidades, fuente completa, rango de validez y población. Coeficientes como constantes con nombre (por ejemplo la tabla de Durnin-Womersley). Agregar un indicador no exige cambiar la arquitectura.
 
-**Seguridad.** Autenticación por token, validación de toda la entrada, sin trazas ni datos del paciente en errores y logs, servicio solo en red interna.
+**Seguridad.** Autenticación por token en el cálculo, validación de toda la entrada y ausencia de trazas o datos del paciente en errores y logs. La URL del servicio y `/health` son públicos; el token nunca se expone al frontend.
 
 **Consistencia.** Nombres de campo estables, unidades fijas, siempre siete claves. Un cambio de clave, unidad o código de estado requiere acuerdo previo con Node y se anota en `AGENTS.md`.
 
