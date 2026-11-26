@@ -26,13 +26,26 @@ El endpoint `GET /health` no requiere autenticación. El endpoint
 `POST /calcular-antropometria` exige `X-API-Key` con el valor de `API_TOKEN`,
 salvo que `DEBUG=True` y el token esté vacío.
 
-## Docker
+## Despliegue en Render
 
-Configurá `.env` con un token y `DEBUG=False` para el despliegue. El Compose
-incluye solo el servicio `web` y no publica puertos al host; conectalo a la red
-privada compartida con Node en el entorno de despliegue.
-También configurá `DJANGO_SECRET_KEY` y `ALLOWED_HOSTS`. La imagen sirve
-`config.asgi:application` con Daphne.
+Creá un **Private Service** desde el repositorio y elegí **Docker** como
+runtime. El `Dockerfile` instala las dependencias e inicia Daphne en el puerto
+`PORT` si Render lo proporciona, o en `8000` como alternativa. No hacen falta
+una base de datos ni migraciones.
+
+Configurá estas variables en el servicio de Render:
+
+- `DEBUG=False`
+- `API_TOKEN`: secreto compartido con el backend Node; no lo expongas al frontend.
+- `DJANGO_SECRET_KEY`: clave secreta independiente de `API_TOKEN`.
+- `ALLOWED_HOSTS`: hostname interno que aparece en **Connect → Internal**, sin
+  protocolo, puerto ni rutas.
+- `LOG_LEVEL=INFO` (opcional).
+
+No configures `PORT` manualmente en Render y no subas el archivo `.env`.
+Configurá `/health` como health check. El servicio privado no tiene URL pública:
+Node debe conectarse usando la dirección interna indicada en **Connect → Internal**.
+Para que funcione, ambos servicios tienen que estar en el mismo workspace y región.
 
 ## Privacidad y alcance
 
